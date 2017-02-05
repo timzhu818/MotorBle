@@ -1,0 +1,102 @@
+#include <RFduinoBLE.h>
+
+int duration = SECONDS(5);
+int clientConnected;
+int heartbeatReceived;
+int motorsRunning;
+
+// GPIO5: LEFT_MOTOR
+#define LEFT_MOTOR_PIN  5
+#define LEFT_MOTOR_MASK  0x01
+// GPIO6: RIGHT_MOTOR
+#define RIGHT_MOTOR_PIN  6
+#define RIGHT_MOTOR_MASK  0x02
+#define HEARTBEAT_MASK 0x04
+
+void setup() {
+// Starts the UART at 9600bps with RX on GPIO3 and TX on GPIO4
+  Serial.begin(9600, 3, 4);
+  RFduinoBLE.advertisementInterval = 675;
+  RFduinoBLE.deviceName = "motor_BLE";
+  RFduinoBLE.begin();
+  Serial.println("Setup");
+  clientConnected = 0;
+  pinMode(LEFT_MOTOR_PIN,OUTPUT);
+  pinMode(RIGHT_MOTOR_PIN,OUTPUT);
+  stop_motors();
+}
+
+void loop() {
+  int v;
+  heartbeatReceived = 0;
+  if( clientConnected ) {
+    v = HEARTBEAT_MASK;
+    Serial.println( "send heartbeat" );
+    RFduinoBLE.send(v);
+  }
+  RFduino_ULPDelay(duration);
+  if( clientConnected &&
+     !heartbeatReceived &&
+     motorsRunning ) {
+       Serial.println( "heartbeat missed" );
+       stop_motors();
+  }
+}
+
+void RFduinoBLE_onConnect()
+{
+  Serial.println( "onConnect" );
+  stop_motors();
+  clientConnected = 1;
+}
+
+void RFduinoBLE_onDisconnect()
+{
+  Serial.println( "onDisconnect" );
+  stop_motors();
+  clientConnected = 0;
+}
+
+void RFduinoBLE_onReceive(char *data, int len){
+  int left_motor = 0;
+  int right_motor = 0;
+  int v;
+
+  Serial.print( "onReceive: ");
+  Serial.print( len,DEC );
+  Serial.println( " bytes" );
+  if( len == 1 ) {
+    heartbeatReceived = 1;
+    v = data[0];
+    Serial.println( v,HEX );
+    if( v >= 0 && v <= 3 ) {
+      if( ( v & LEFT_MOTOR_MASK ) != 0 ) {
+        digitalWrite(LEFT_MOTOR_PIN,HIGH);
+        left_motor = 1;
+      } else {
+        digitalWrite(LEFT_MOTOR_PIN,LOW);
+        left_motor = 0;
+      }
+
+      if( ( v & RIGHT_MOTOR_MASK ) != 0 ) {
+        digitalWrite(RIGHT_MOTOR_PIN,HIGH);
+        right_motor = 1;
+      } else {
+        digitalWrite(RIGHT_MOTOR_PIN,LOW);
+        right_motor = 0;
+      }
+      RFduinoBLE.send(v);
+      Serial.print( "left_motor: ");
+      Serial.println( left_motor );
+      Serial.print( "right_motor: ");
+      Serial.println( right_motor );
+      motorsRunning = left_motor || right_motor;
+    }
+  }
+}
+
+void stop_motors() {
+  digitalWrite(LEFT_MOTOR_PIN,LOW);
+  digitalWrite(RIGHT_MOTOR_PIN,LOW);
+  motorsRunning = 0;
+}
